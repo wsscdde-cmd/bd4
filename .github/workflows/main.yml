@@ -1,0 +1,55 @@
+name: Build APK from ZIP
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Unzip project
+        run: |
+          mkdir -p unzipped_project
+          if ls *.zip 1> /dev/null 2>&1; then
+            unzip -q -o "*.zip" -d unzipped_project
+            if [ ! -f "unzipped_project/settings.gradle.kts" ] && [ ! -f "unzipped_project/settings.gradle" ]; then
+              SUBDIR=$(find unzipped_project -mindepth 1 -maxdepth 1 -type d | head -n 1)
+              if [ -n "$SUBDIR" ]; then
+                mv "$SUBDIR"/* "$SUBDIR"/.* unzipped_project/ 2>/dev/null || true
+              fi
+            fi
+          else
+            cp -r * unzipped_project/ 2>/dev/null || true
+          fi
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Create missing debug.keystore
+        working-directory: unzipped_project
+        run: |
+          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          cp debug.keystore app/debug.keystore 2>/dev/null || true
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Build Debug APK
+        working-directory: unzipped_project
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ready-Game-APK
+          path: unzipped_project/app/build/outputs/apk/debug/*.apk
